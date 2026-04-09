@@ -1,0 +1,37 @@
+# bitnetd.conf — BitNet Inference Daemon Configuration
+# See bitnetd.conf(5) for full documentation.
+
+[daemon]
+# user = _bitnetd
+# group = _bitnetd
+pidfile = /tmp/bitnetd.pid
+logfile = /tmp/bitnetd.log
+loglevel = info
+
+[model]
+# Path to the GGUF model file (required)
+path = /path/to/ggml-model-i2_s.gguf
+threads = 4
+ctx_size = 2048
+temperature = 0.8
+top_k = 40
+top_p = 0.95
+
+[server]
+listen = 127.0.0.1:8080
+# unix_socket = /tmp/bitnetd.sock
+max_connections = 64
+request_timeout = 30
+max_body_size = 65536
+backlog = 128
+
+[backend]
+# Path to llama-server binary (default: searches $PATH)
+# server_path = /usr/local/bin/llama-server
+port = 18088
+
+[security]
+rate_limit = 60
+
+[metrics]
+enabled = true

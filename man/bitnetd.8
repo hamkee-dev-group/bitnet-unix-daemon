@@ -1,0 +1,57 @@
+.Dd April 8, 2025
+.Dt BITNETD 8
+.Os
+.Sh NAME
+.Nm bitnetd
+.Nd BitNet LLM inference daemon
+.Sh SYNOPSIS
+.Nm
+.Op Fl c Ar config
+.Op Fl f
+.Op Fl t
+.Op Fl v
+.Sh DESCRIPTION
+.Nm
+is a Unix daemon that serves BitNet 1-bit LLM inference over HTTP,
+exposing an OpenAI-compatible REST API.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl c Ar config
+Specify the configuration file.
+Default is
+.Pa /etc/bitnetd.conf .
+.It Fl f
+Run in foreground mode.
+Do not daemonize; log to stderr.
+.It Fl t
+Test configuration file syntax and exit.
+.It Fl v
+Print version and exit.
+.El
+.Sh SIGNALS
+.Bl -tag -width "SIGUSR1"
+.It Dv SIGHUP
+Reload configuration file.
+.It Dv SIGTERM
+Graceful shutdown.
+.It Dv SIGINT
+Same as SIGTERM.
+.It Dv SIGUSR1
+Reopen log files (for log rotation).
+.It Dv SIGUSR2
+Dump status information to log.
+.El
+.Sh FILES
+.Bl -tag -width "/var/run/bitnetd.pid"
+.It Pa /etc/bitnetd.conf
+Default configuration file.
+.It Pa /var/run/bitnetd.pid
+PID file.
+.El
+.Sh SEE ALSO
+.Xr bitnetd.conf 5 ,
+.Xr bitnetctl 1
+.Sh AUTHORS
+Hamkee
+.Aq https://hamkee.net

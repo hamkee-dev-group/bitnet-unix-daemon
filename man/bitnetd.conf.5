@@ -1,0 +1,89 @@
+.Dd April 8, 2025
+.Dt BITNETD.CONF 5
+.Os
+.Sh NAME
+.Nm bitnetd.conf
+.Nd configuration file for bitnetd
+.Sh DESCRIPTION
+The
+.Nm
+file is an INI-format configuration file for
+.Xr bitnetd 8 .
+.Pp
+Lines beginning with
+.Sq #
+or
+.Sq ;
+are comments.
+Sections are delimited by
+.Sq [name] .
+Settings are
+.Ar key = value
+pairs.
+.Sh SECTIONS
+.Ss [daemon]
+.Bl -tag -width "loglevel"
+.It Ic user
+User to drop privileges to.
+.It Ic group
+Group to drop privileges to.
+.It Ic pidfile
+Path to PID file.
+Default:
+.Pa /var/run/bitnetd.pid .
+.It Ic logfile
+Path to log file.
+.It Ic loglevel
+Log level: debug, info, warn, error.
+Default: info.
+.El
+.Ss [model]
+.Bl -tag -width "temperature"
+.It Ic path
+Path to GGUF model file.
+.It Ic threads
+Number of inference threads.
+Default: 4.
+.It Ic ctx_size
+Context window size.
+Default: 4096.
+.It Ic temperature
+Sampling temperature.
+Default: 0.8.
+.El
+.Ss [server]
+.Bl -tag -width "max_connections"
+.It Ic listen
+TCP listen address in
+.Ar host:port
+format.
+Default: 127.0.0.1:8080.
+.It Ic unix_socket
+Path to Unix domain socket.
+.It Ic max_connections
+Maximum concurrent connections.
+Default: 64.
+.It Ic request_timeout
+Request timeout in seconds.
+Default: 30.
+.It Ic max_body_size
+Maximum request body size in bytes.
+Default: 65536.
+.El
+.Ss [backend]
+.Bl -tag -width "server_path"
+.It Ic server_path
+Path to llama-server binary.
+.It Ic port
+Internal port for llama-server.
+Default: 18088.
+.El
+.Ss [metrics]
+.Bl -tag -width "enabled"
+.It Ic enabled
+Enable Prometheus metrics endpoint.
+Default: true.
+.El
+.Sh SEE ALSO
+.Xr bitnetd 8 ,
+.Xr bitnetctl 1

@@ -1,0 +1,14 @@
+#!/bin/ksh
+#
+# $OpenBSD$
+
+daemon="/usr/local/sbin/bitnetd"
+daemon_flags="-c /etc/bitnetd.conf"
+
+. /etc/rc.d/rc.subr
+
+rc_reload() {
+	pkill -HUP -F /var/run/bitnetd.pid
+}
+
+rc_cmd $1

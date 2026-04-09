@@ -1,0 +1,14 @@
+[Unit]
+Description=BitNet Inference Daemon
+After=network.target
+
+[Service]
+Type=forking
+PIDFile=/var/run/bitnetd.pid
+ExecStart=/usr/local/sbin/bitnetd -c /etc/bitnetd.conf
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
