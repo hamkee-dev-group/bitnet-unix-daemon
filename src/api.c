@@ -135,6 +135,8 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
 
     int max_tokens    = (int)json_get_num(root, "max_tokens", 256);
     double temperature = json_get_num(root, "temperature", 0.8);
+    int top_k         = (int)json_get_num(root, "top_k", -1);
+    double top_p      = json_get_num(root, "top_p", -1.0);
     int stream        = json_get_bool_val(root, "stream", 0);
 
     char *prompt = malloc(API_BUF_SIZE);
@@ -160,7 +162,7 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
 
         http_start_sse(conn);
         backend_generate(ctx->backend, prompt, max_tokens, temperature,
-                         stream_token, &sctx);
+                         top_k, top_p, stream_token, &sctx);
 
         char final_chunk[1024];
         int fn = snprintf(final_chunk, sizeof(final_chunk),
@@ -199,7 +201,8 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
         }
 
         int rc = backend_generate(ctx->backend, prompt, max_tokens,
-                                  temperature, collect_token, &cctx);
+                                  temperature, top_k, top_p,
+                                  collect_token, &cctx);
         free(prompt);
 
         if (rc < 0) {
@@ -294,6 +297,8 @@ api_completions(http_conn_t *conn, http_request_t *req,
     const char *prompt = json_get_str(root, "prompt");
     int max_tokens     = (int)json_get_num(root, "max_tokens", 256);
     double temperature = json_get_num(root, "temperature", 0.8);
+    int top_k          = (int)json_get_num(root, "top_k", -1);
+    double top_p       = json_get_num(root, "top_p", -1.0);
 
     if (!prompt) {
         json_free(root);
@@ -320,7 +325,7 @@ api_completions(http_conn_t *conn, http_request_t *req,
     }
 
     backend_generate(ctx->backend, prompt, max_tokens, temperature,
-                     collect_token, &cctx);
+                     top_k, top_p, collect_token, &cctx);
     json_free(root);
 
     char id[64];

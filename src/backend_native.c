@@ -150,13 +150,18 @@ gen_callback(int token, const char *text, void *ud)
 
 int
 backend_generate(backend_t *b, const char *prompt, int max_tokens,
-                 double temperature, token_cb_fn cb, void *userdata)
+                 double temperature, int top_k, double top_p,
+                 token_cb_fn cb, void *userdata)
 {
     if (!b || !b->ready) return -1;
 
-    /* Create a fresh context to reset KV state and apply temperature. */
+    /* Create a fresh context to reset KV state and apply per-request overrides. */
     bitnet_params_t params = b->params;
     params.temperature = (float)temperature;
+    if (top_k >= 0)
+        params.top_k = top_k;
+    if (top_p >= 0.0)
+        params.top_p = (float)top_p;
 
     bitnet_ctx_t *ctx = bitnet_ctx_new(b->model, params);
     if (!ctx) {

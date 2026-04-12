@@ -225,7 +225,8 @@ backend_model_name(const backend_t *b)
 
 int
 backend_generate(backend_t *b, const char *prompt, int max_tokens,
-                 double temperature, token_cb_fn cb, void *userdata)
+                 double temperature, int top_k, double top_p,
+                 token_cb_fn cb, void *userdata)
 {
     if (!b || !b->ready) return -1;
 
@@ -257,11 +258,16 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
     }
     escaped[ei] = '\0';
 
-    int body_len = snprintf(req_body, strlen(prompt) + 512,
-        "{\"prompt\":\"%s\",\"n_predict\":%d,\"temperature\":%.2f,"
-        "\"stream\":false,\"cache_prompt\":false}",
+    int pos = snprintf(req_body, strlen(prompt) + 512,
+        "{\"prompt\":\"%s\",\"n_predict\":%d,\"temperature\":%.2f",
         escaped, max_tokens, temperature);
     free(escaped);
+    if (top_k >= 0)
+        pos += snprintf(req_body + pos, 64, ",\"top_k\":%d", top_k);
+    if (top_p >= 0.0)
+        pos += snprintf(req_body + pos, 64, ",\"top_p\":%.4f", top_p);
+    pos += snprintf(req_body + pos, 64, ",\"stream\":false,\"cache_prompt\":false}");
+    int body_len = pos;
 
     char *resp = malloc(BACKEND_BUF_SIZE);
     if (!resp) { free(req_body); return -1; }
