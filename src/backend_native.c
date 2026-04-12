@@ -132,6 +132,7 @@ is_control_token(const char *text)
 struct gen_state {
     token_cb_fn cb;
     void       *userdata;
+    int         stopped_eos;   /* set when a control token ends generation */
 };
 
 static bool
@@ -139,19 +140,21 @@ gen_callback(int token, const char *text, void *ud)
 {
     (void)token;
     struct gen_state *s = ud;
-    if (is_control_token(text))
+    if (is_control_token(text)) {
+        s->stopped_eos = 1;
         return false;
+    }
     if (s->cb && text)
         s->cb(text, strlen(text), s->userdata);
     return true;
 }
 
-int
+backend_finish_t
 backend_generate(backend_t *b, const char *prompt, int max_tokens,
                  double temperature, int top_k, double top_p,
                  token_cb_fn cb, void *userdata)
 {
-    if (!b || !b->ready) return -1;
+    if (!b || !b->ready) return BACKEND_FINISH_ERROR;
 
     /* Reset KV cache for a fresh generation and reinit sampler with
      * per-request parameters through the public API.                   */
@@ -166,32 +169,37 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
     int *tokens = malloc(ctx_budget * sizeof(*tokens));
     if (!tokens) {
         log_error("backend[native]: failed to allocate token buffer");
-        return -1;
+        return BACKEND_FINISH_ERROR;
     }
     int n_tokens = bitnet_tokenize(b->ctx, prompt, tokens, ctx_budget);
     if (n_tokens <= 0) {
         log_error("backend[native]: tokenization failed");
         free(tokens);
-        return -1;
+        return BACKEND_FINISH_ERROR;
     }
 
     if (n_tokens + max_tokens > ctx_budget) {
         log_error("backend[native]: prompt (%d) + max_tokens (%d) exceeds "
                   "context window (%d)", n_tokens, max_tokens, ctx_budget);
         free(tokens);
-        return -1;
+        return BACKEND_FINISH_ERROR;
     }
 
     log_debug("backend[native]: prompt = %d tokens, generating up to %d",
               n_tokens, max_tokens);
 
-    struct gen_state state = { .cb = cb, .userdata = userdata };
+    struct gen_state state = { .cb = cb, .userdata = userdata, .stopped_eos = 0 };
     int generated = bitnet_generate(b->ctx, tokens, n_tokens, max_tokens,
                                     gen_callback, &state);
 
     free(tokens);
-    if (generated < 0) return -1;
+    if (generated < 0) return BACKEND_FINISH_ERROR;
 
     log_debug("backend[native]: generated %d tokens", generated);
-    return 0;
+
+    if (state.stopped_eos)
+        return BACKEND_FINISH_STOP;
+    if (generated >= max_tokens)
+        return BACKEND_FINISH_LENGTH;
+    return BACKEND_FINISH_STOP;
 }

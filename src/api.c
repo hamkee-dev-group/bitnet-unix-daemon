@@ -291,22 +291,36 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
         token_filter_init(&filt, stream_emit, &sctx);
 
         http_start_sse(conn);
-        backend_generate(ctx->backend, prompt, max_tokens, temperature,
-                         top_k, top_p, filtered_token_cb, &filt);
+        backend_finish_t finish = backend_generate(ctx->backend, prompt,
+                             max_tokens, temperature,
+                             top_k, top_p, filtered_token_cb, &filt);
         token_filter_flush(&filt);
 
-        char final_chunk[1024];
-        int fn = snprintf(final_chunk, sizeof(final_chunk),
-            "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\","
-            "\"created\":%ld,\"model\":\"%s\","
-            "\"choices\":[{\"index\":0,\"delta\":{},"
-            "\"finish_reason\":\"stop\"}]}",
-            sctx.id, (long)time(NULL), model_name);
-        http_send_sse(conn, final_chunk, (size_t)fn);
-        http_end_sse(conn);
+        if (finish == BACKEND_FINISH_ERROR) {
+            char err_chunk[1024];
+            int en = snprintf(err_chunk, sizeof(err_chunk),
+                "{\"error\":{\"message\":\"inference failed\","
+                "\"type\":\"server_error\"}}");
+            http_send_sse(conn, err_chunk, (size_t)en);
+            http_end_sse(conn);
+            metrics_inc_errors(ctx->metrics);
+            free(prompt);
+        } else {
+            const char *reason = (finish == BACKEND_FINISH_LENGTH)
+                                 ? "length" : "stop";
+            char final_chunk[1024];
+            int fn = snprintf(final_chunk, sizeof(final_chunk),
+                "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\","
+                "\"created\":%ld,\"model\":\"%s\","
+                "\"choices\":[{\"index\":0,\"delta\":{},"
+                "\"finish_reason\":\"%s\"}]}",
+                sctx.id, (long)time(NULL), model_name, reason);
+            http_send_sse(conn, final_chunk, (size_t)fn);
+            http_end_sse(conn);
 
-        metrics_add_tokens(ctx->metrics, filt.backend_tokens);
-        free(prompt);
+            metrics_add_tokens(ctx->metrics, filt.backend_tokens);
+            free(prompt);
+        }
     } else {
         collect_ctx_t cctx;
         cctx.cap = API_BUF_SIZE;
@@ -333,13 +347,13 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
             if (spaces > 0) prompt_tokens = spaces;
         }
 
-        int rc = backend_generate(ctx->backend, prompt, max_tokens,
-                                  temperature, top_k, top_p,
+        backend_finish_t finish = backend_generate(ctx->backend, prompt,
+                                  max_tokens, temperature, top_k, top_p,
                                   filtered_token_cb, &filt);
         token_filter_flush(&filt);
         free(prompt);
 
-        if (rc < 0) {
+        if (finish == BACKEND_FINISH_ERROR) {
             free(cctx.buf);
             http_resp_init(resp, 500, "Internal Server Error");
             const char *err = "{\"error\":{\"message\":\"inference failed\"}}";
@@ -368,6 +382,9 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
         }
         escaped[ei] = '\0';
 
+        const char *reason = (finish == BACKEND_FINISH_LENGTH)
+                             ? "length" : "stop";
+
         char *out = malloc(API_BUF_SIZE);
         if (!out) { free(cctx.buf); free(escaped); return; }
 
@@ -379,7 +396,7 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
             "\"choices\":[{"
                 "\"index\":0,"
                 "\"message\":{\"role\":\"assistant\",\"content\":\"%s\"},"
-                "\"finish_reason\":\"stop\""
+                "\"finish_reason\":\"%s\""
             "}],"
             "\"usage\":{"
                 "\"prompt_tokens\":%d,"
@@ -387,7 +404,7 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
                 "\"total_tokens\":%d"
             "}}",
             id, (long)time(NULL), model_name,
-            escaped,
+            escaped, reason,
             prompt_tokens, filt.backend_tokens,
             prompt_tokens + filt.backend_tokens);
 

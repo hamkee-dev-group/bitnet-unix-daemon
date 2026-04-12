@@ -223,19 +223,19 @@ backend_model_name(const backend_t *b)
     return b ? b->model_name : "unknown";
 }
 
-int
+backend_finish_t
 backend_generate(backend_t *b, const char *prompt, int max_tokens,
                  double temperature, int top_k, double top_p,
                  token_cb_fn cb, void *userdata)
 {
-    if (!b || !b->ready) return -1;
+    if (!b || !b->ready) return BACKEND_FINISH_ERROR;
 
     char *req_body = malloc(strlen(prompt) + 512);
-    if (!req_body) return -1;
+    if (!req_body) return BACKEND_FINISH_ERROR;
 
     size_t escaped_cap = strlen(prompt) * 2 + 1;
     char *escaped = malloc(escaped_cap);
-    if (!escaped) { free(req_body); return -1; }
+    if (!escaped) { free(req_body); return BACKEND_FINISH_ERROR; }
 
     size_t ei = 0;
     for (const char *p = prompt; *p; p++) {
@@ -270,7 +270,7 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
     int body_len = pos;
 
     char *resp = malloc(BACKEND_BUF_SIZE);
-    if (!resp) { free(req_body); return -1; }
+    if (!resp) { free(req_body); return BACKEND_FINISH_ERROR; }
 
     int n = http_request(b->port, "POST", "/completion",
                          req_body, (size_t)body_len,
@@ -280,14 +280,14 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
     if (n <= 0) {
         log_error("backend: request failed");
         free(resp);
-        return -1;
+        return BACKEND_FINISH_ERROR;
     }
 
     char *json_body = strstr(resp, "\r\n\r\n");
     if (!json_body) {
         log_error("backend: malformed response");
         free(resp);
-        return -1;
+        return BACKEND_FINISH_ERROR;
     }
     json_body += 4;
 
@@ -295,21 +295,21 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
     if (!content_key) {
         log_error("backend: no content in response");
         free(resp);
-        return -1;
+        return BACKEND_FINISH_ERROR;
     }
 
     char *colon = strchr(content_key, ':');
-    if (!colon) { free(resp); return -1; }
+    if (!colon) { free(resp); return BACKEND_FINISH_ERROR; }
 
     char *p = colon + 1;
     while (*p == ' ' || *p == '\t') p++;
 
-    if (*p != '"') { free(resp); return -1; }
+    if (*p != '"') { free(resp); return BACKEND_FINISH_ERROR; }
     p++;
 
     size_t content_cap = (size_t)(resp + n - p);
     char *content = malloc(content_cap + 1);
-    if (!content) { free(resp); return -1; }
+    if (!content) { free(resp); return BACKEND_FINISH_ERROR; }
 
     size_t ci = 0;
     while (*p && *p != '"') {
@@ -335,7 +335,12 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
         cb(content, ci, userdata);
     }
 
+    /* Determine finish reason from llama-server response fields. */
+    backend_finish_t finish = BACKEND_FINISH_STOP;
+    if (strstr(json_body, "\"stopped_limit\":true"))
+        finish = BACKEND_FINISH_LENGTH;
+
     free(content);
     free(resp);
-    return 0;
+    return finish;
 }
