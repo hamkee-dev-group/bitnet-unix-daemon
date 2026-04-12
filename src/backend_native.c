@@ -7,8 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define NATIVE_MAX_TOKENS 8192
-
 struct backend {
     bitnet_model_t  *model;
     bitnet_ctx_t    *ctx;
@@ -171,10 +169,23 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
     bitnet_ctx_free(b->ctx);
     b->ctx = ctx;
 
-    int tokens[NATIVE_MAX_TOKENS];
-    int n_tokens = bitnet_tokenize(ctx, prompt, tokens, NATIVE_MAX_TOKENS);
+    int ctx_budget = params.n_ctx;
+    int *tokens = malloc(ctx_budget * sizeof(*tokens));
+    if (!tokens) {
+        log_error("backend[native]: failed to allocate token buffer");
+        return -1;
+    }
+    int n_tokens = bitnet_tokenize(ctx, prompt, tokens, ctx_budget);
     if (n_tokens <= 0) {
         log_error("backend[native]: tokenization failed");
+        free(tokens);
+        return -1;
+    }
+
+    if (n_tokens + max_tokens > ctx_budget) {
+        log_error("backend[native]: prompt (%d) + max_tokens (%d) exceeds "
+                  "context window (%d)", n_tokens, max_tokens, ctx_budget);
+        free(tokens);
         return -1;
     }
 
@@ -185,6 +196,7 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
     int generated = bitnet_generate(ctx, tokens, n_tokens, max_tokens,
                                     gen_callback, &state);
 
+    free(tokens);
     if (generated < 0) return -1;
 
     log_debug("backend[native]: generated %d tokens", generated);
