@@ -103,18 +103,25 @@ backend_model_name(const backend_t *b)
     return b ? b->model_name : "unknown";
 }
 
-struct cb_adapter_ctx {
-    token_cb_fn cb;
-    void       *userdata;
+/* Control markers that signal end-of-turn or chat structure boundaries. */
+static const char *control_markers[] = {
+    "<|end_of_text|>",
+    "<|eot_id|>",
+    "<|end_of_header|>",
+    "<|start_of_header|>",
+    "<|begin_of_text|>",
+    NULL
 };
 
-static void
-cb_adapter(int token, const char *text, void *ud)
+static int
+is_control_token(const char *text)
 {
-    (void)token;
-    struct cb_adapter_ctx *a = ud;
-    if (a->cb && text)
-        a->cb(text, strlen(text), a->userdata);
+    if (!text) return 0;
+    for (const char **m = control_markers; *m; m++) {
+        if (strcmp(text, *m) == 0)
+            return 1;
+    }
+    return 0;
 }
 
 int
@@ -139,12 +146,36 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
     log_debug("backend[native]: prompt = %d tokens, generating up to %d",
               n_tokens, max_tokens);
 
-    struct cb_adapter_ctx adapter = { .cb = cb, .userdata = userdata };
-    int generated = bitnet_generate(ctx, tokens, n_tokens, max_tokens,
-                                    cb_adapter, &adapter);
-    if (generated < 0) {
-        log_error("backend[native]: bitnet_generate failed");
-        return -1;
+    int eos = bn_token_eos(ctx->tokenizer);
+
+    /* Prefill: run all prompt tokens through the model. */
+    float *logits = NULL;
+    for (int i = 0; i < n_tokens; i++) {
+        int need_logits = (i == n_tokens - 1);
+        float *ret = bitnet_forward(ctx, &tokens[i], 1, need_logits);
+        if (need_logits && !ret) return -1;
+        if (!need_logits && ctx->kv_len == 0) return -1;
+        if (ret) logits = ret;
+    }
+
+    /* Decode loop: sample, check for stop conditions, then emit. */
+    int generated = 0;
+    for (int i = 0; i < max_tokens; i++) {
+        int token = bn_sample(&ctx->sampler, logits, ctx->model->n_vocab);
+
+        if (token == eos)
+            break;
+
+        const char *text = bn_token_text(ctx->tokenizer, token);
+        if (is_control_token(text))
+            break;
+
+        if (cb && text)
+            cb(text, strlen(text), userdata);
+
+        generated++;
+        logits = bitnet_forward(ctx, &token, 1, 1);
+        if (!logits) return -1;
     }
 
     log_debug("backend[native]: generated %d tokens", generated);
