@@ -153,29 +153,22 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
 {
     if (!b || !b->ready) return -1;
 
-    /* Create a fresh context to reset KV state and apply per-request overrides. */
-    bitnet_params_t params = b->params;
-    params.temperature = (float)temperature;
-    if (top_k >= 0)
-        params.top_k = top_k;
-    if (top_p >= 0.0)
-        params.top_p = (float)top_p;
+    /* Reset KV cache for a fresh generation and reinit sampler with
+     * per-request parameters through the public API.                   */
+    b->ctx->kv_len = 0;
 
-    bitnet_ctx_t *ctx = bitnet_ctx_new(b->model, params);
-    if (!ctx) {
-        log_error("backend[native]: failed to create generation context");
-        return -1;
-    }
-    bitnet_ctx_free(b->ctx);
-    b->ctx = ctx;
+    float req_temp  = (float)temperature;
+    int   req_top_k = (top_k >= 0)  ? top_k        : b->params.top_k;
+    float req_top_p = (top_p >= 0.0) ? (float)top_p : b->params.top_p;
+    bn_sampler_init(&b->ctx->sampler, req_temp, req_top_k, req_top_p);
 
-    int ctx_budget = params.n_ctx;
+    int ctx_budget = b->params.n_ctx;
     int *tokens = malloc(ctx_budget * sizeof(*tokens));
     if (!tokens) {
         log_error("backend[native]: failed to allocate token buffer");
         return -1;
     }
-    int n_tokens = bitnet_tokenize(ctx, prompt, tokens, ctx_budget);
+    int n_tokens = bitnet_tokenize(b->ctx, prompt, tokens, ctx_budget);
     if (n_tokens <= 0) {
         log_error("backend[native]: tokenization failed");
         free(tokens);
@@ -193,7 +186,7 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
               n_tokens, max_tokens);
 
     struct gen_state state = { .cb = cb, .userdata = userdata };
-    int generated = bitnet_generate(ctx, tokens, n_tokens, max_tokens,
+    int generated = bitnet_generate(b->ctx, tokens, n_tokens, max_tokens,
                                     gen_callback, &state);
 
     free(tokens);
