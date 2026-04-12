@@ -40,6 +40,12 @@ backend_init(const config_t *cfg)
         if (tp && strchr(tp, '.'))
             default_top_p = (float)atof(tp);
     }
+    float default_temp = 0.8f;  /* documented default: conf/bitnetd.conf.example */
+    {
+        const char *tv = cfg_get_str(cfg, "model", "temperature");
+        if (tv)
+            default_temp = (float)atof(tv);
+    }
 
     const char *slash = strrchr(model_path, '/');
     if (slash) {
@@ -67,7 +73,7 @@ backend_init(const config_t *cfg)
     b->params = bitnet_params_default();
     b->params.n_threads   = threads;
     b->params.n_ctx       = ctx_size;
-    b->params.temperature = 0.8f;
+    b->params.temperature = default_temp;
     b->params.top_k       = default_top_k;
     b->params.top_p       = default_top_p;
 
