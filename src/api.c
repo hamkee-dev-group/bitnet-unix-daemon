@@ -349,7 +349,8 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
         http_start_sse(conn);
         backend_finish_t finish = backend_generate(ctx->backend, prompt,
                              max_tokens, temperature,
-                             top_k, top_p, filtered_token_cb, &filt);
+                             top_k, top_p, filtered_token_cb, &filt,
+                             NULL);
         token_filter_flush(&filt);
 
         if (finish == BACKEND_FINISH_ERROR) {
@@ -395,17 +396,12 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
         token_filter_t filt;
         token_filter_init(&filt, collect_emit, &cctx);
 
-        int prompt_tokens = 10;
-        {
-            int spaces = 0;
-            for (const char *pp = prompt; *pp; pp++)
-                if (*pp == ' ') spaces++;
-            if (spaces > 0) prompt_tokens = spaces;
-        }
+        int prompt_tokens = 0;
 
         backend_finish_t finish = backend_generate(ctx->backend, prompt,
                                   max_tokens, temperature, top_k, top_p,
-                                  filtered_token_cb, &filt);
+                                  filtered_token_cb, &filt,
+                                  &prompt_tokens);
         token_filter_flush(&filt);
         free(prompt);
 
@@ -532,7 +528,7 @@ api_completions(http_conn_t *conn, http_request_t *req,
     }
 
     backend_generate(ctx->backend, prompt, max_tokens, temperature,
-                     top_k, top_p, collect_token, &cctx);
+                     top_k, top_p, collect_token, &cctx, NULL);
     json_free(root);
 
     char id[64];

@@ -20,7 +20,8 @@ void             backend_free(backend_t *b);
 int              backend_ready(const backend_t *b);
 backend_finish_t backend_generate(backend_t *b, const char *prompt, int max_tokens,
                                   double temperature, int top_k, double top_p,
-                                  token_cb_fn cb, void *userdata);
+                                  token_cb_fn cb, void *userdata,
+                                  int *prompt_token_count);
 const char      *backend_model_name(const backend_t *b);
 const char      *backend_chat_template(const backend_t *b);
 

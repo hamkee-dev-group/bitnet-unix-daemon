@@ -238,7 +238,8 @@ backend_chat_template(const backend_t *b)
 backend_finish_t
 backend_generate(backend_t *b, const char *prompt, int max_tokens,
                  double temperature, int top_k, double top_p,
-                 token_cb_fn cb, void *userdata)
+                 token_cb_fn cb, void *userdata,
+                 int *prompt_token_count)
 {
     if (!b || !b->ready) return BACKEND_FINISH_ERROR;
 
@@ -351,6 +352,15 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
     backend_finish_t finish = BACKEND_FINISH_STOP;
     if (strstr(json_body, "\"stopped_limit\":true"))
         finish = BACKEND_FINISH_LENGTH;
+
+    /* Extract tokens_evaluated from llama-server response if available. */
+    if (prompt_token_count) {
+        const char *te = strstr(json_body, "\"tokens_evaluated\":");
+        if (te) {
+            te += strlen("\"tokens_evaluated\":");
+            *prompt_token_count = atoi(te);
+        }
+    }
 
     free(content);
     free(resp);

@@ -170,7 +170,8 @@ gen_callback(int token, const char *text, void *ud)
 backend_finish_t
 backend_generate(backend_t *b, const char *prompt, int max_tokens,
                  double temperature, int top_k, double top_p,
-                 token_cb_fn cb, void *userdata)
+                 token_cb_fn cb, void *userdata,
+                 int *prompt_token_count)
 {
     if (!b || !b->ready) return BACKEND_FINISH_ERROR;
 
@@ -195,6 +196,8 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
         free(tokens);
         return BACKEND_FINISH_ERROR;
     }
+    if (prompt_token_count)
+        *prompt_token_count = n_tokens;
 
     if (n_tokens + max_tokens > ctx_budget) {
         log_error("backend[native]: prompt (%d) + max_tokens (%d) exceeds "
