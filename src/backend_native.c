@@ -109,6 +109,8 @@ static const char *control_markers[] = {
     "<|eot_id|>",
     "<|end_of_header|>",
     "<|start_of_header|>",
+    "<|end_header_id|>",
+    "<|start_header_id|>",
     "<|begin_of_text|>",
     NULL
 };
@@ -117,10 +119,16 @@ static int
 is_control_token(const char *text)
 {
     if (!text) return 0;
+    /* Exact match against known markers. */
     for (const char **m = control_markers; *m; m++) {
         if (strcmp(text, *m) == 0)
             return 1;
     }
+    /* Catch-all: any <|...|> pattern is a special token. */
+    size_t len = strlen(text);
+    if (len >= 5 && text[0] == '<' && text[1] == '|'
+                  && text[len-1] == '>' && text[len-2] == '|')
+        return 1;
     return 0;
 }
 
