@@ -147,6 +147,7 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
               n_tokens, max_tokens);
 
     int eos = bn_token_eos(ctx->tokenizer);
+    int eot = bn_token_eot(ctx->tokenizer);
 
     /* Prefill: run all prompt tokens through the model. */
     float *logits = NULL;
@@ -163,7 +164,7 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
     for (int i = 0; i < max_tokens; i++) {
         int token = bn_sample(&ctx->sampler, logits, ctx->model->n_vocab);
 
-        if (token == eos)
+        if (token == eos || token == eot)
             break;
 
         const char *text = bn_token_text(ctx->tokenizer, token);
