@@ -246,6 +246,7 @@ stream_emit(const char *text, size_t len, void *ud)
         case '\\': escaped[ei++] = '\\'; escaped[ei++] = '\\'; break;
         case '\n': escaped[ei++] = '\\'; escaped[ei++] = 'n';  break;
         case '\r': escaped[ei++] = '\\'; escaped[ei++] = 'r';  break;
+        case '\t': escaped[ei++] = '\\'; escaped[ei++] = 't';  break;
         default:   escaped[ei++] = text[i]; break;
         }
     }
