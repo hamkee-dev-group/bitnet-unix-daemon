@@ -62,6 +62,11 @@ sudo make install
 
 # Run tests
 make test
+
+# Native backend smoke test (requires model file; skips cleanly if missing)
+BITNET_C11_DIR=../bitnet-c11 \
+BITNET_MODEL=../bitnet-c11/models/BitNet-b1.58-2B-4T/ggml-model-i2_s.gguf \
+  make test-native
 ```
 
 ### Build options
@@ -90,6 +95,21 @@ its path:
 ```bash
 make BACKEND=native BITNET_C11_DIR=/path/to/bitnet-c11
 ```
+
+To verify the native build end-to-end, run the smoke test. It builds
+bitnetd, starts it with a temporary config, checks `/health`,
+`/v1/models`, and `/v1/chat/completions`, then tears down:
+
+```bash
+BITNET_C11_DIR=../bitnet-c11 \
+BITNET_MODEL=../bitnet-c11/models/BitNet-b1.58-2B-4T/ggml-model-i2_s.gguf \
+  make test-native
+```
+
+If either `BITNET_C11_DIR` or `BITNET_MODEL` is unset (or the paths
+don't exist), the test prints `SKIP` and exits 0 — safe to include in
+CI without a model present. Override `NATIVE_SMOKE_TIMEOUT` (default 30s)
+for slow machines.
 
 ## Configuration
 

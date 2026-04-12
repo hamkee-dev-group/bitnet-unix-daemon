@@ -9,7 +9,9 @@ logfile = /tmp/bitnetd.log
 loglevel = info
 
 [model]
-# Path to the GGUF model file (required)
+# Path to the GGUF model file (required).
+# For local native-backend smoke testing with a BitNet-b1.58-2B-4T checkout:
+#   path = ../bitnet-c11/models/BitNet-b1.58-2B-4T/ggml-model-i2_s.gguf
 path = /path/to/ggml-model-i2_s.gguf
 threads = 4
 ctx_size = 2048
@@ -26,8 +28,12 @@ max_body_size = 65536
 backlog = 128
 
 [backend]
-# Path to llama-server binary (default: searches $PATH)
+# Path to llama-server binary (subprocess backend only; default: searches $PATH)
 # server_path = /usr/local/bin/llama-server
+#
+# For the native backend, server_path is ignored — inference runs in-process.
+# Build with:  make BACKEND=native BITNET_C11_DIR=../bitnet-c11
+# Smoke test:  BITNET_C11_DIR=../bitnet-c11 BITNET_MODEL=<path> make test-native
 port = 18088
 
 [security]
