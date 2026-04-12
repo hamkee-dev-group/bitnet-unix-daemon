@@ -10,6 +10,126 @@
 
 #define API_BUF_SIZE 131072
 
+/* ── Control-token filter ──────────────────────────────────────────
+ * Buffers partial <|…|> sequences.  Complete control tokens are
+ * silently dropped; anything else is forwarded to the downstream
+ * emit callback.  Both streaming and non-streaming chat paths feed
+ * tokens through this filter so their visible output is identical.
+ */
+
+#define TOKEN_FILTER_BUF 64
+
+typedef struct {
+    char    pending[TOKEN_FILTER_BUF];
+    size_t  plen;
+    int     backend_tokens;
+    int     (*emit)(const char *text, size_t len, void *ud);
+    void   *ud;
+} token_filter_t;
+
+static const char *control_tokens[] = {
+    "<|begin_of_text|>",
+    "<|end_of_text|>",
+    "<|start_header_id|>",
+    "<|end_header_id|>",
+    "<|eot_id|>",
+    NULL
+};
+
+static int
+is_control_token(const char *s, size_t len)
+{
+    for (const char **ct = control_tokens; *ct; ct++)
+        if (len == strlen(*ct) && memcmp(s, *ct, len) == 0)
+            return 1;
+    return 0;
+}
+
+static int
+could_be_control_prefix(const char *s, size_t len)
+{
+    for (const char **ct = control_tokens; *ct; ct++) {
+        size_t ctlen = strlen(*ct);
+        if (len <= ctlen && memcmp(s, *ct, len) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+static void
+token_filter_init(token_filter_t *f,
+                  int (*emit)(const char *, size_t, void *), void *ud)
+{
+    f->plen = 0;
+    f->backend_tokens = 0;
+    f->emit = emit;
+    f->ud   = ud;
+}
+
+static int
+token_filter_feed(token_filter_t *f, const char *token, size_t len)
+{
+    size_t i = 0;
+    while (i < len) {
+        if (f->plen > 0) {
+            char ch = token[i];
+            if (f->plen + 1 < TOKEN_FILTER_BUF) {
+                f->pending[f->plen] = ch;
+                if (could_be_control_prefix(f->pending, f->plen + 1)) {
+                    f->plen++;
+                    if (ch == '>' && is_control_token(f->pending, f->plen)) {
+                        f->plen = 0;          /* drop control token */
+                    }
+                    i++;
+                    continue;
+                }
+            }
+            /* Not a valid prefix — flush pending as normal text */
+            int rc = f->emit(f->pending, f->plen, f->ud);
+            if (rc) return rc;
+            f->plen = 0;
+            /* reprocess current char below */
+            continue;
+        }
+
+        /* Fast-scan for the next '<' */
+        size_t start = i;
+        while (i < len && token[i] != '<') i++;
+        if (i > start) {
+            int rc = f->emit(token + start, i - start, f->ud);
+            if (rc) return rc;
+        }
+        if (i < len) {                       /* hit a '<' */
+            f->pending[0] = '<';
+            f->plen = 1;
+            i++;
+        }
+    }
+    return 0;
+}
+
+static int
+token_filter_flush(token_filter_t *f)
+{
+    if (f->plen > 0) {
+        int rc = f->emit(f->pending, f->plen, f->ud);
+        f->plen = 0;
+        return rc;
+    }
+    return 0;
+}
+
+/* Callback handed to backend_generate — feeds through the filter. */
+static int
+filtered_token_cb(const char *token, size_t len, void *ud)
+{
+    token_filter_t *f = (token_filter_t *)ud;
+    f->backend_tokens++;
+    return token_filter_feed(f, token, len);
+}
+
+/* ── End of filter ─────────────────────────────────────────────── */
+
 static int
 apply_chat_template(const json_value_t *messages, char *buf, size_t cap)
 {
@@ -49,30 +169,39 @@ typedef struct {
     char   *buf;
     size_t  len;
     size_t  cap;
-    int     token_count;
+    int     token_count;   /* used by legacy /v1/completions */
 } collect_ctx_t;
 
+/* Emit callback: appends (sanitized) text to buffer. */
+static int
+collect_emit(const char *text, size_t len, void *ud)
+{
+    collect_ctx_t *ctx = (collect_ctx_t *)ud;
+    if (ctx->len + len >= ctx->cap) return -1;
+    memcpy(ctx->buf + ctx->len, text, len);
+    ctx->len += len;
+    ctx->buf[ctx->len] = '\0';
+    return 0;
+}
+
+/* Raw token callback for /v1/completions (no control-token filtering). */
 static int
 collect_token(const char *token, size_t len, void *ud)
 {
     collect_ctx_t *ctx = (collect_ctx_t *)ud;
-    if (ctx->len + len >= ctx->cap) return -1;
-    memcpy(ctx->buf + ctx->len, token, len);
-    ctx->len += len;
-    ctx->buf[ctx->len] = '\0';
     ctx->token_count++;
-    return 0;
+    return collect_emit(token, len, ud);
 }
 
 typedef struct {
     http_conn_t *conn;
-    int          token_count;
     char         id[64];
     const char  *model;
 } stream_ctx_t;
 
+/* Emit callback for streaming: JSON-escapes sanitized text and sends SSE. */
 static int
-stream_token(const char *token, size_t len, void *ud)
+stream_emit(const char *text, size_t len, void *ud)
 {
     stream_ctx_t *ctx = (stream_ctx_t *)ud;
     char chunk[API_BUF_SIZE];
@@ -80,12 +209,12 @@ stream_token(const char *token, size_t len, void *ud)
     char escaped[4096];
     size_t ei = 0;
     for (size_t i = 0; i < len && ei + 6 < sizeof(escaped); i++) {
-        switch (token[i]) {
+        switch (text[i]) {
         case '"':  escaped[ei++] = '\\'; escaped[ei++] = '"';  break;
         case '\\': escaped[ei++] = '\\'; escaped[ei++] = '\\'; break;
         case '\n': escaped[ei++] = '\\'; escaped[ei++] = 'n';  break;
         case '\r': escaped[ei++] = '\\'; escaped[ei++] = 'r';  break;
-        default:   escaped[ei++] = token[i]; break;
+        default:   escaped[ei++] = text[i]; break;
         }
     }
     escaped[ei] = '\0';
@@ -98,7 +227,6 @@ stream_token(const char *token, size_t len, void *ud)
         ctx->id, (long)time(NULL), ctx->model, escaped);
 
     http_send_sse(ctx->conn, chunk, (size_t)n);
-    ctx->token_count++;
     return 0;
 }
 
@@ -156,13 +284,16 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
     if (stream) {
         stream_ctx_t sctx;
         sctx.conn = conn;
-        sctx.token_count = 0;
         sctx.model = model_name;
         gen_id(sctx.id, sizeof(sctx.id), "chatcmpl");
 
+        token_filter_t filt;
+        token_filter_init(&filt, stream_emit, &sctx);
+
         http_start_sse(conn);
         backend_generate(ctx->backend, prompt, max_tokens, temperature,
-                         top_k, top_p, stream_token, &sctx);
+                         top_k, top_p, filtered_token_cb, &filt);
+        token_filter_flush(&filt);
 
         char final_chunk[1024];
         int fn = snprintf(final_chunk, sizeof(final_chunk),
@@ -174,14 +305,13 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
         http_send_sse(conn, final_chunk, (size_t)fn);
         http_end_sse(conn);
 
-        metrics_add_tokens(ctx->metrics, sctx.token_count);
+        metrics_add_tokens(ctx->metrics, filt.backend_tokens);
         free(prompt);
     } else {
         collect_ctx_t cctx;
         cctx.cap = API_BUF_SIZE;
         cctx.buf = malloc(cctx.cap);
         cctx.len = 0;
-        cctx.token_count = 0;
 
         if (!cctx.buf) {
             free(prompt);
@@ -191,6 +321,9 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
             http_resp_send(conn, resp);
             return;
         }
+
+        token_filter_t filt;
+        token_filter_init(&filt, collect_emit, &cctx);
 
         int prompt_tokens = 10;
         {
@@ -202,7 +335,8 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
 
         int rc = backend_generate(ctx->backend, prompt, max_tokens,
                                   temperature, top_k, top_p,
-                                  collect_token, &cctx);
+                                  filtered_token_cb, &filt);
+        token_filter_flush(&filt);
         free(prompt);
 
         if (rc < 0) {
@@ -254,8 +388,8 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
             "}}",
             id, (long)time(NULL), model_name,
             escaped,
-            prompt_tokens, cctx.token_count,
-            prompt_tokens + cctx.token_count);
+            prompt_tokens, filt.backend_tokens,
+            prompt_tokens + filt.backend_tokens);
 
         http_resp_init(resp, 200, "OK");
         http_resp_body_json(resp, out, (size_t)n);
@@ -266,11 +400,11 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
         double elapsed = (double)(t_end.tv_sec - t_start.tv_sec) +
                          (double)(t_end.tv_nsec - t_start.tv_nsec) / 1e9;
         metrics_observe_latency(ctx->metrics, elapsed);
-        metrics_add_tokens(ctx->metrics, cctx.token_count);
+        metrics_add_tokens(ctx->metrics, filt.backend_tokens);
 
-        if (elapsed > 0 && cctx.token_count > 0)
+        if (elapsed > 0 && filt.backend_tokens > 0)
             metrics_set_tps(ctx->metrics,
-                            (double)cctx.token_count / elapsed);
+                            (double)filt.backend_tokens / elapsed);
 
         free(cctx.buf);
         free(escaped);
