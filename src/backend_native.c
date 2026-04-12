@@ -103,6 +103,20 @@ backend_model_name(const backend_t *b)
     return b ? b->model_name : "unknown";
 }
 
+struct cb_adapter_ctx {
+    token_cb_fn cb;
+    void       *userdata;
+};
+
+static void
+cb_adapter(int token, const char *text, void *ud)
+{
+    (void)token;
+    struct cb_adapter_ctx *a = ud;
+    if (a->cb && text)
+        a->cb(text, strlen(text), a->userdata);
+}
+
 int
 backend_generate(backend_t *b, const char *prompt, int max_tokens,
                  double temperature, token_cb_fn cb, void *userdata)
@@ -125,36 +139,12 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
     log_debug("backend[native]: prompt = %d tokens, generating up to %d",
               n_tokens, max_tokens);
 
-    float *logits = NULL;
-    for (int i = 0; i < n_tokens; i++) {
-        int need_logits = (i == n_tokens - 1);
-        logits = bitnet_forward(ctx, &tokens[i], 1, need_logits);
-    }
-
-    if (!logits) {
-        log_error("backend[native]: forward pass returned NULL");
+    struct cb_adapter_ctx adapter = { .cb = cb, .userdata = userdata };
+    int generated = bitnet_generate(ctx, tokens, n_tokens, max_tokens,
+                                    cb_adapter, &adapter);
+    if (generated < 0) {
+        log_error("backend[native]: bitnet_generate failed");
         return -1;
-    }
-
-    int eos = bn_token_eos(ctx->tokenizer);
-    int generated = 0;
-
-    for (int i = 0; i < max_tokens; i++) {
-        int token = bitnet_sample_token(ctx, logits);
-        if (token == eos)
-            break;
-
-        const char *text = bn_token_text(ctx->tokenizer, token);
-        size_t text_len = strlen(text);
-
-        if (cb) {
-            int rc = cb(text, text_len, userdata);
-            if (rc < 0)
-                break;
-        }
-
-        generated++;
-        logits = bitnet_forward(ctx, &token, 1, 1);
     }
 
     log_debug("backend[native]: generated %d tokens", generated);
