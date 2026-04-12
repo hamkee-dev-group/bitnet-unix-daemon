@@ -1,3 +1,5 @@
 .devloop/
 bitnetctl
 bitnetd
+*.o
+test_*
