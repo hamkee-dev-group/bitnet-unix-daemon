@@ -136,6 +136,9 @@ test-native test_native_smoke:
 test-endpoints:
 	@sh tests/test_endpoints.sh
 
+test-inference:
+	@sh tests/test_inference.sh
+
 # ── Install ────────────────────────────────────────────────────────
 install: bitnetd bitnetctl
 	install -d $(DESTDIR)$(PREFIX)/sbin
@@ -161,4 +164,4 @@ portcheck:
 		&& echo "PASS: no Linux-only APIs outside poller_epoll.c" \
 		|| echo "FAIL: Linux-only APIs found outside poller_epoll.c"
 
-.PHONY: all clean test test-native test_native_smoke test-endpoints install portcheck bitnet-c11
+.PHONY: all clean test test-native test_native_smoke test-endpoints test-inference install portcheck bitnet-c11
