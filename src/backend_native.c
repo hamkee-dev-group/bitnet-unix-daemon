@@ -176,12 +176,12 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
 
     /* Reset KV cache for a fresh generation and reinit sampler with
      * per-request parameters through the public API.                   */
-    b->ctx->kv_len = 0;
+    bitnet_kv_clear(b->ctx);
 
     float req_temp  = (float)temperature;
     int   req_top_k = (top_k >= 0)  ? top_k        : b->params.top_k;
     float req_top_p = (top_p >= 0.0) ? (float)top_p : b->params.top_p;
-    bn_sampler_init(&b->ctx->sampler, req_temp, req_top_k, req_top_p);
+    bitnet_sampler_configure(b->ctx, req_temp, req_top_k, req_top_p);
 
     int ctx_budget = b->params.n_ctx;
     int *tokens = malloc(ctx_budget * sizeof(*tokens));
