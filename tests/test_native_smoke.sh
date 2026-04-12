@@ -187,6 +187,49 @@ case "$MODELS_BODY" in
         ;;
 esac
 
+# ── /v1/chat/completions inference ───────────────────────────────
+echo "--- checking /v1/chat/completions (non-streaming) ---"
+CHAT_HTTP=$(curl -s -o "$TMPDIR_SMOKE/chat.json" -w "%{http_code}" \
+    --max-time 30 \
+    -H "Content-Type: application/json" \
+    -d '{"messages":[{"role":"user","content":"Say hello."}],"max_tokens":8}' \
+    "http://127.0.0.1:$PORT/v1/chat/completions") || true
+
+if [ "$CHAT_HTTP" != "200" ]; then
+    echo "FAIL: /v1/chat/completions returned HTTP $CHAT_HTTP (expected 200)"
+    cat "$TMPDIR_SMOKE/chat.json" 2>/dev/null; echo
+    cat "$LOG"
+    kill "$DAEMON_PID" 2>/dev/null || true
+    exit 1
+fi
+
+CHAT_BODY=$(cat "$TMPDIR_SMOKE/chat.json")
+
+# Verify response is JSON with a choices array containing message content
+case "$CHAT_BODY" in
+    *'"choices":'*'"message":'*'"content":'*)
+        ;;
+    *)
+        echo "FAIL: /v1/chat/completions response is malformed: $CHAT_BODY"
+        cat "$LOG"
+        kill "$DAEMON_PID" 2>/dev/null || true
+        exit 1
+        ;;
+esac
+
+# Verify the content field is non-empty (not just "content":"")
+case "$CHAT_BODY" in
+    *'"content":""'*)
+        echo "FAIL: /v1/chat/completions returned empty content"
+        echo "  response: $CHAT_BODY"
+        cat "$LOG"
+        kill "$DAEMON_PID" 2>/dev/null || true
+        exit 1
+        ;;
+esac
+
+echo "  /v1/chat/completions OK: got non-empty response"
+
 # ── Tear down ─────────────────────────────────────────────────────
 kill "$DAEMON_PID" 2>/dev/null || true
 wait "$DAEMON_PID" 2>/dev/null || true
