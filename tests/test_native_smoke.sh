@@ -119,6 +119,74 @@ fi
 
 echo "--- bitnetd is ready (took ~${elapsed}s) ---"
 
+# ── /health endpoint ─────────────────────────────────────────────
+echo "--- checking /health ---"
+HEALTH_HTTP=$(curl -s -o "$TMPDIR_SMOKE/health.json" -w "%{http_code}" \
+    --max-time 5 "http://127.0.0.1:$PORT/health") || true
+
+if [ "$HEALTH_HTTP" != "200" ]; then
+    echo "FAIL: /health returned HTTP $HEALTH_HTTP (expected 200)"
+    cat "$TMPDIR_SMOKE/health.json" 2>/dev/null; echo
+    cat "$LOG"
+    kill "$DAEMON_PID" 2>/dev/null || true
+    exit 1
+fi
+
+HEALTH_BODY=$(cat "$TMPDIR_SMOKE/health.json")
+case "$HEALTH_BODY" in
+    *'"status":"ok"'*)
+        echo "  /health OK: $HEALTH_BODY"
+        ;;
+    *)
+        echo "FAIL: /health body missing {\"status\":\"ok\"}: $HEALTH_BODY"
+        cat "$LOG"
+        kill "$DAEMON_PID" 2>/dev/null || true
+        exit 1
+        ;;
+esac
+
+# ── /v1/models endpoint ──────────────────────────────────────────
+echo "--- checking /v1/models ---"
+MODELS_HTTP=$(curl -s -o "$TMPDIR_SMOKE/models.json" -w "%{http_code}" \
+    --max-time 5 "http://127.0.0.1:$PORT/v1/models") || true
+
+if [ "$MODELS_HTTP" != "200" ]; then
+    echo "FAIL: /v1/models returned HTTP $MODELS_HTTP (expected 200)"
+    cat "$TMPDIR_SMOKE/models.json" 2>/dev/null; echo
+    cat "$LOG"
+    kill "$DAEMON_PID" 2>/dev/null || true
+    exit 1
+fi
+
+MODELS_BODY=$(cat "$TMPDIR_SMOKE/models.json")
+
+# Verify it looks like JSON with a data array
+case "$MODELS_BODY" in
+    *'"data":'*'"id":'*)
+        ;;
+    *)
+        echo "FAIL: /v1/models response is malformed JSON: $MODELS_BODY"
+        cat "$LOG"
+        kill "$DAEMON_PID" 2>/dev/null || true
+        exit 1
+        ;;
+esac
+
+# The model id should match the GGUF file basename (without path or extension)
+MODEL_BASENAME=$(basename "$BITNET_MODEL" .gguf)
+case "$MODELS_BODY" in
+    *"\"id\":\"$MODEL_BASENAME\""*)
+        echo "  /v1/models OK: found model id \"$MODEL_BASENAME\""
+        ;;
+    *)
+        echo "FAIL: /v1/models id does not match GGUF basename \"$MODEL_BASENAME\""
+        echo "  response: $MODELS_BODY"
+        cat "$LOG"
+        kill "$DAEMON_PID" 2>/dev/null || true
+        exit 1
+        ;;
+esac
+
 # ── Tear down ─────────────────────────────────────────────────────
 kill "$DAEMON_PID" 2>/dev/null || true
 wait "$DAEMON_PID" 2>/dev/null || true
