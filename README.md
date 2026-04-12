@@ -67,6 +67,12 @@ make test
 BITNET_C11_DIR=../bitnet-c11 \
 BITNET_MODEL=../bitnet-c11/models/BitNet-b1.58-2B-4T/ggml-model-i2_s.gguf \
   make test-native
+
+# API integration tests (against a running or auto-started daemon)
+make test-endpoints    # /health and /v1/models
+make test-inference    # /v1/chat/completions round-trip
+# Both skip gracefully (exit 0) when BITNET_C11_DIR, BITNET_MODEL,
+# or a running daemon is unavailable — safe to include in CI.
 ```
 
 ### Build options
