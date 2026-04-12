@@ -127,6 +127,12 @@ test_config: $(TEST_CONFIG_SRCS)
 test_json: $(TEST_JSON_SRCS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(TEST_JSON_SRCS)
 
+# Native backend smoke test — skips cleanly when BITNET_C11_DIR or
+# BITNET_MODEL are not set.  Override NATIVE_SMOKE_TIMEOUT for slow
+# machines.
+test_native_smoke:
+	@sh tests/test_native_smoke.sh
+
 # ── Install ────────────────────────────────────────────────────────
 install: bitnetd bitnetctl
 	install -d $(DESTDIR)$(PREFIX)/sbin
@@ -152,4 +158,4 @@ portcheck:
 		&& echo "PASS: no Linux-only APIs outside poller_epoll.c" \
 		|| echo "FAIL: Linux-only APIs found outside poller_epoll.c"
 
-.PHONY: all clean test install portcheck bitnet-c11
+.PHONY: all clean test test_native_smoke install portcheck bitnet-c11
