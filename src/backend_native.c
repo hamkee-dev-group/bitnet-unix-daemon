@@ -10,12 +10,11 @@
 #define NATIVE_MAX_TOKENS 8192
 
 struct backend {
-    bitnet_model_t *model;
-    bitnet_ctx_t   *ctx;
-    char            model_name[128];
-    int             ready;
-    int             default_top_k;
-    float           default_top_p;
+    bitnet_model_t  *model;
+    bitnet_ctx_t    *ctx;
+    bitnet_params_t  params;
+    char             model_name[128];
+    int              ready;
 };
 
 backend_t *
@@ -34,12 +33,12 @@ backend_init(const config_t *cfg)
     int threads  = cfg_get_int(cfg, "model", "threads", 4);
     int ctx_size = cfg_get_int(cfg, "model", "ctx_size", 2048);
 
-    b->default_top_k = cfg_get_int(cfg, "model", "top_k", 40);
-    b->default_top_p = (float)cfg_get_int(cfg, "model", "top_p", 95) / 100.0f;
+    int   default_top_k = cfg_get_int(cfg, "model", "top_k", 40);
+    float default_top_p = (float)cfg_get_int(cfg, "model", "top_p", 95) / 100.0f;
     {
         const char *tp = cfg_get_str(cfg, "model", "top_p");
         if (tp && strchr(tp, '.'))
-            b->default_top_p = (float)atof(tp);
+            default_top_p = (float)atof(tp);
     }
 
     const char *slash = strrchr(model_path, '/');
@@ -61,14 +60,14 @@ backend_init(const config_t *cfg)
         return NULL;
     }
 
-    bitnet_params_t params = bitnet_params_default();
-    params.n_threads   = threads;
-    params.n_ctx       = ctx_size;
-    params.temperature = 0.8f;
-    params.top_k       = b->default_top_k;
-    params.top_p       = b->default_top_p;
+    b->params = bitnet_params_default();
+    b->params.n_threads   = threads;
+    b->params.n_ctx       = ctx_size;
+    b->params.temperature = 0.8f;
+    b->params.top_k       = default_top_k;
+    b->params.top_p       = default_top_p;
 
-    b->ctx = bitnet_ctx_new(b->model, params);
+    b->ctx = bitnet_ctx_new(b->model, b->params);
     if (!b->ctx) {
         log_error("backend[native]: failed to create context");
         bitnet_model_free(b->model);
@@ -132,17 +131,40 @@ is_control_token(const char *text)
     return 0;
 }
 
+struct gen_state {
+    token_cb_fn cb;
+    void       *userdata;
+};
+
+static bool
+gen_callback(int token, const char *text, void *ud)
+{
+    (void)token;
+    struct gen_state *s = ud;
+    if (is_control_token(text))
+        return false;
+    if (s->cb && text)
+        s->cb(text, strlen(text), s->userdata);
+    return true;
+}
+
 int
 backend_generate(backend_t *b, const char *prompt, int max_tokens,
                  double temperature, token_cb_fn cb, void *userdata)
 {
-    if (!b || !b->ready || !b->ctx) return -1;
+    if (!b || !b->ready) return -1;
 
-    bitnet_ctx_t *ctx = b->ctx;
+    /* Create a fresh context to reset KV state and apply temperature. */
+    bitnet_params_t params = b->params;
+    params.temperature = (float)temperature;
 
-    ctx->kv_len = 0;
-
-    ctx->sampler.temperature = (float)temperature;
+    bitnet_ctx_t *ctx = bitnet_ctx_new(b->model, params);
+    if (!ctx) {
+        log_error("backend[native]: failed to create generation context");
+        return -1;
+    }
+    bitnet_ctx_free(b->ctx);
+    b->ctx = ctx;
 
     int tokens[NATIVE_MAX_TOKENS];
     int n_tokens = bitnet_tokenize(ctx, prompt, tokens, NATIVE_MAX_TOKENS);
@@ -154,38 +176,11 @@ backend_generate(backend_t *b, const char *prompt, int max_tokens,
     log_debug("backend[native]: prompt = %d tokens, generating up to %d",
               n_tokens, max_tokens);
 
-    int eos = bn_token_eos(ctx->tokenizer);
-    int eot = bn_token_eot(ctx->tokenizer);
+    struct gen_state state = { .cb = cb, .userdata = userdata };
+    int generated = bitnet_generate(ctx, tokens, n_tokens, max_tokens,
+                                    gen_callback, &state);
 
-    /* Prefill: run all prompt tokens through the model. */
-    float *logits = NULL;
-    for (int i = 0; i < n_tokens; i++) {
-        int need_logits = (i == n_tokens - 1);
-        float *ret = bitnet_forward(ctx, &tokens[i], 1, need_logits);
-        if (need_logits && !ret) return -1;
-        if (!need_logits && ctx->kv_len == 0) return -1;
-        if (ret) logits = ret;
-    }
-
-    /* Decode loop: sample, check for stop conditions, then emit. */
-    int generated = 0;
-    for (int i = 0; i < max_tokens; i++) {
-        int token = bn_sample(&ctx->sampler, logits, ctx->model->n_vocab);
-
-        if (token == eos || token == eot)
-            break;
-
-        const char *text = bn_token_text(ctx->tokenizer, token);
-        if (is_control_token(text))
-            break;
-
-        if (cb && text)
-            cb(text, strlen(text), userdata);
-
-        generated++;
-        logits = bitnet_forward(ctx, &token, 1, 1);
-        if (!logits) return -1;
-    }
+    if (generated < 0) return -1;
 
     log_debug("backend[native]: generated %d tokens", generated);
     return 0;
