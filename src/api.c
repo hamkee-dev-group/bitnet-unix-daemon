@@ -133,9 +133,12 @@ filtered_token_cb(const char *token, size_t len, void *ud)
 static int
 apply_chat_template_llama3(const json_value_t *messages, char *buf, size_t cap)
 {
-    int pos = 0;
-    pos += snprintf(buf + pos, cap - (size_t)pos,
-                    "<|begin_of_text|>");
+    size_t pos = 0;
+    int ret;
+
+    ret = snprintf(buf + pos, cap - pos, "<|begin_of_text|>");
+    if (ret < 0 || (size_t)ret >= cap - pos) return -1;
+    pos += (size_t)ret;
 
     size_t n = json_array_len(messages);
     for (size_t i = 0; i < n; i++) {
@@ -146,21 +149,26 @@ apply_chat_template_llama3(const json_value_t *messages, char *buf, size_t cap)
         const char *content = json_get_str(msg, "content");
         if (!role || !content) continue;
 
-        pos += snprintf(buf + pos, cap - (size_t)pos,
+        ret = snprintf(buf + pos, cap - pos,
             "<|start_header_id|>%s<|end_header_id|>\n\n%s<|eot_id|>",
             role, content);
+        if (ret < 0 || (size_t)ret >= cap - pos) return -1;
+        pos += (size_t)ret;
     }
 
-    pos += snprintf(buf + pos, cap - (size_t)pos,
+    ret = snprintf(buf + pos, cap - pos,
         "<|start_header_id|>assistant<|end_header_id|>\n\n");
+    if (ret < 0 || (size_t)ret >= cap - pos) return -1;
+    pos += (size_t)ret;
 
-    return pos;
+    return (int)pos;
 }
 
 static int
 apply_chat_template_bitnet(const json_value_t *messages, char *buf, size_t cap)
 {
-    int pos = 0;
+    size_t pos = 0;
+    int ret;
 
     size_t n = json_array_len(messages);
     for (size_t i = 0; i < n; i++) {
@@ -171,13 +179,17 @@ apply_chat_template_bitnet(const json_value_t *messages, char *buf, size_t cap)
         const char *content = json_get_str(msg, "content");
         if (!role || !content) continue;
 
-        pos += snprintf(buf + pos, cap - (size_t)pos,
+        ret = snprintf(buf + pos, cap - pos,
             "%s: %s\n", role, content);
+        if (ret < 0 || (size_t)ret >= cap - pos) return -1;
+        pos += (size_t)ret;
     }
 
-    pos += snprintf(buf + pos, cap - (size_t)pos, "assistant:");
+    ret = snprintf(buf + pos, cap - pos, "assistant:");
+    if (ret < 0 || (size_t)ret >= cap - pos) return -1;
+    pos += (size_t)ret;
 
-    return pos;
+    return (int)pos;
 }
 
 static int
@@ -309,9 +321,19 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
         http_resp_send(conn, resp);
         return;
     }
-    apply_chat_template(messages, backend_chat_template(ctx->backend),
-                        prompt, API_BUF_SIZE);
+    int tmpl_ret = apply_chat_template(messages, backend_chat_template(ctx->backend),
+                                        prompt, API_BUF_SIZE);
     json_free(root);
+
+    if (tmpl_ret < 0) {
+        free(prompt);
+        http_resp_init(resp, 400, "Bad Request");
+        const char *err = "{\"error\":{\"message\":\"prompt too long\",\"type\":\"invalid_request_error\"}}";
+        http_resp_body_json(resp, err, strlen(err));
+        http_resp_send(conn, resp);
+        metrics_inc_errors(ctx->metrics);
+        return;
+    }
 
     const char *model_name = backend_model_name(ctx->backend);
 

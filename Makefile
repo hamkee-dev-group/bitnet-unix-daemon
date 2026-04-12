@@ -93,6 +93,7 @@ CTL_OBJS = $(CTL_SRCS:.c=.o)
 TEST_CONFIG_SRCS = tests/test_config.c src/config.c
 TEST_JSON_SRCS   = tests/test_json.c src/json.c
 TEST_JSON_ESCAPE_SRCS = tests/test_json_escape.c
+TEST_CHAT_TEMPLATE_SRCS = tests/test_chat_template.c src/json.c
 
 # ── Targets ────────────────────────────────────────────────────────
 all: bitnetd bitnetctl
@@ -115,13 +116,15 @@ bitnet-c11:
 	$(MAKE) -C $(BITNET_C11_DIR)
 
 # ── Tests ──────────────────────────────────────────────────────────
-test: test_config test_json test_json_escape
+test: test_config test_json test_json_escape test_chat_template
 	@echo "--- test_config ---"
 	./test_config
 	@echo "--- test_json ---"
 	./test_json
 	@echo "--- test_json_escape ---"
 	./test_json_escape
+	@echo "--- test_chat_template ---"
+	./test_chat_template
 	@echo "All tests passed."
 
 test_config: $(TEST_CONFIG_SRCS)
@@ -132,6 +135,9 @@ test_json: $(TEST_JSON_SRCS)
 
 test_json_escape: $(TEST_JSON_ESCAPE_SRCS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(TEST_JSON_ESCAPE_SRCS)
+
+test_chat_template: $(TEST_CHAT_TEMPLATE_SRCS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(TEST_CHAT_TEMPLATE_SRCS)
 
 # Native backend smoke test — skips cleanly when BITNET_C11_DIR or
 # BITNET_MODEL are not set.  Override NATIVE_SMOKE_TIMEOUT for slow
@@ -159,7 +165,7 @@ install: bitnetd bitnetctl
 	install -m 644 man/bitnetctl.1   $(DESTDIR)$(PREFIX)/share/man/man1/
 
 clean:
-	rm -f bitnetd bitnetctl test_config test_json test_json_escape
+	rm -f bitnetd bitnetctl test_config test_json test_json_escape test_chat_template
 	rm -f src/*.o tools/*.o tests/*.o
 
 # Portability check: ensure only poller_epoll.c includes sys/epoll.h
@@ -170,4 +176,4 @@ portcheck:
 		&& echo "PASS: no Linux-only APIs outside poller_epoll.c" \
 		|| echo "FAIL: Linux-only APIs found outside poller_epoll.c"
 
-.PHONY: all clean test test-native test_native_smoke test-endpoints test-inference install portcheck bitnet-c11 test_json_escape
+.PHONY: all clean test test-native test_native_smoke test-endpoints test-inference install portcheck bitnet-c11 test_json_escape test_chat_template
