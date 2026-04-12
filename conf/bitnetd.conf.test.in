@@ -1,0 +1,30 @@
+# bitnetd.conf.test.in — test config template with sed-replaceable tokens.
+# Used by tests/common.sh to generate per-run configs.
+#
+# Tokens: MODEL_PATH, LISTEN_PORT, PIDFILE, LOGFILE (wrapped in @@)
+
+[daemon]
+pidfile = @@PIDFILE@@
+logfile = @@LOGFILE@@
+loglevel = debug
+
+[model]
+path = @@MODEL_PATH@@
+threads = 2
+ctx_size = 512
+
+[server]
+listen = 127.0.0.1:@@LISTEN_PORT@@
+max_connections = 4
+request_timeout = 10
+max_body_size = 65536
+backlog = 4
+
+[backend]
+port = 0
+
+[security]
+rate_limit = 60
+
+[metrics]
+enabled = true
