@@ -29,6 +29,7 @@ struct backend {
     int         ctx_size;
     int         ready;
     char        model_name[128];
+    char        chat_template[64];
 };
 
 static int
@@ -136,6 +137,10 @@ backend_init(const config_t *cfg)
     b->ctx_size = cfg_get_int(cfg, "model", "ctx_size", 4096);
     b->port     = cfg_get_int(cfg, "backend", "port", BACKEND_PORT);
 
+    const char *tmpl = cfg_get_str(cfg, "model", "chat_template");
+    snprintf(b->chat_template, sizeof(b->chat_template), "%s",
+             tmpl ? tmpl : "llama3");
+
     const char *slash = strrchr(b->model_path, '/');
     if (slash) {
         snprintf(b->model_name, sizeof(b->model_name), "%s", slash + 1);
@@ -221,6 +226,12 @@ const char *
 backend_model_name(const backend_t *b)
 {
     return b ? b->model_name : "unknown";
+}
+
+const char *
+backend_chat_template(const backend_t *b)
+{
+    return b ? b->chat_template : "llama3";
 }
 
 backend_finish_t

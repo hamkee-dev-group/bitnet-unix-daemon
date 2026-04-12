@@ -12,6 +12,7 @@ struct backend {
     bitnet_ctx_t    *ctx;
     bitnet_params_t  params;
     char             model_name[128];
+    char             chat_template[64];
     int              ready;
 };
 
@@ -47,6 +48,10 @@ backend_init(const config_t *cfg)
     } else {
         snprintf(b->model_name, sizeof(b->model_name), "bitnet");
     }
+
+    const char *tmpl = cfg_get_str(cfg, "model", "chat_template");
+    snprintf(b->chat_template, sizeof(b->chat_template), "%s",
+             tmpl ? tmpl : "bitnet");
 
     log_info("backend[native]: loading model %s", model_path);
     log_info("backend[native]: threads=%d, ctx_size=%d", threads, ctx_size);
@@ -98,6 +103,12 @@ const char *
 backend_model_name(const backend_t *b)
 {
     return b ? b->model_name : "unknown";
+}
+
+const char *
+backend_chat_template(const backend_t *b)
+{
+    return b ? b->chat_template : "bitnet";
 }
 
 /* Control markers that signal end-of-turn or chat structure boundaries. */

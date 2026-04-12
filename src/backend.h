@@ -22,5 +22,6 @@ backend_finish_t backend_generate(backend_t *b, const char *prompt, int max_toke
                                   double temperature, int top_k, double top_p,
                                   token_cb_fn cb, void *userdata);
 const char      *backend_model_name(const backend_t *b);
+const char      *backend_chat_template(const backend_t *b);
 
 #endif

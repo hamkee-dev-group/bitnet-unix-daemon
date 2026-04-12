@@ -131,7 +131,7 @@ filtered_token_cb(const char *token, size_t len, void *ud)
 /* ── End of filter ─────────────────────────────────────────────── */
 
 static int
-apply_chat_template(const json_value_t *messages, char *buf, size_t cap)
+apply_chat_template_llama3(const json_value_t *messages, char *buf, size_t cap)
 {
     int pos = 0;
     pos += snprintf(buf + pos, cap - (size_t)pos,
@@ -155,6 +155,38 @@ apply_chat_template(const json_value_t *messages, char *buf, size_t cap)
         "<|start_header_id|>assistant<|end_header_id|>\n\n");
 
     return pos;
+}
+
+static int
+apply_chat_template_bitnet(const json_value_t *messages, char *buf, size_t cap)
+{
+    int pos = 0;
+
+    size_t n = json_array_len(messages);
+    for (size_t i = 0; i < n; i++) {
+        json_value_t *msg = json_array_get(messages, i);
+        if (!msg) continue;
+
+        const char *role    = json_get_str(msg, "role");
+        const char *content = json_get_str(msg, "content");
+        if (!role || !content) continue;
+
+        pos += snprintf(buf + pos, cap - (size_t)pos,
+            "%s: %s\n", role, content);
+    }
+
+    pos += snprintf(buf + pos, cap - (size_t)pos, "assistant:");
+
+    return pos;
+}
+
+static int
+apply_chat_template(const json_value_t *messages, const char *tmpl,
+                    char *buf, size_t cap)
+{
+    if (strcmp(tmpl, "llama3") == 0)
+        return apply_chat_template_llama3(messages, buf, cap);
+    return apply_chat_template_bitnet(messages, buf, cap);
 }
 
 static void
@@ -276,7 +308,8 @@ api_chat_completions(http_conn_t *conn, http_request_t *req,
         http_resp_send(conn, resp);
         return;
     }
-    apply_chat_template(messages, prompt, API_BUF_SIZE);
+    apply_chat_template(messages, backend_chat_template(ctx->backend),
+                        prompt, API_BUF_SIZE);
     json_free(root);
 
     const char *model_name = backend_model_name(ctx->backend);
