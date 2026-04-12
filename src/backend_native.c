@@ -1,4 +1,5 @@
 #include "backend.h"
+#include "bitnetd.h"
 #include "log.h"
 
 #include "bitnet.h"
@@ -30,7 +31,7 @@ backend_init(const config_t *cfg)
     }
 
     int threads  = cfg_get_int(cfg, "model", "threads", 4);
-    int ctx_size = cfg_get_int(cfg, "model", "ctx_size", 2048);
+    int ctx_size = cfg_get_int(cfg, "model", "ctx_size", BITNETD_DEFAULT_CTX_SIZE);
 
     int   default_top_k = cfg_get_int(cfg, "model", "top_k", 40);
     float default_top_p = (float)cfg_get_int(cfg, "model", "top_p", 95) / 100.0f;

@@ -1,4 +1,5 @@
 #include "backend.h"
+#include "bitnetd.h"
 #include "log.h"
 
 #include <stdio.h>
@@ -134,7 +135,7 @@ backend_init(const config_t *cfg)
     snprintf(b->server_path, sizeof(b->server_path), "%s", server);
 
     b->threads  = cfg_get_int(cfg, "model", "threads", 4);
-    b->ctx_size = cfg_get_int(cfg, "model", "ctx_size", 4096);
+    b->ctx_size = cfg_get_int(cfg, "model", "ctx_size", BITNETD_DEFAULT_CTX_SIZE);
     b->port     = cfg_get_int(cfg, "backend", "port", BACKEND_PORT);
 
     const char *tmpl = cfg_get_str(cfg, "model", "chat_template");
