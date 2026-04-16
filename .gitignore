@@ -3,3 +3,4 @@ bitnetctl
 bitnetd
 *.o
 test_*
+src/*.o
