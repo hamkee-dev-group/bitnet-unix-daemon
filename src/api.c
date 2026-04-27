@@ -527,9 +527,21 @@ api_completions(http_conn_t *conn, http_request_t *req,
         return;
     }
 
-    backend_generate(ctx->backend, prompt, max_tokens, temperature,
-                     top_k, top_p, collect_token, &cctx, NULL);
+    int prompt_tokens = 0;
+    backend_finish_t finish = backend_generate(ctx->backend, prompt, max_tokens,
+                                  temperature, top_k, top_p,
+                                  collect_token, &cctx, &prompt_tokens);
     json_free(root);
+
+    if (finish == BACKEND_FINISH_ERROR) {
+        free(cctx.buf);
+        http_resp_init(resp, 500, "Internal Server Error");
+        const char *err = "{\"error\":{\"message\":\"inference failed\"}}";
+        http_resp_body_json(resp, err, strlen(err));
+        http_resp_send(conn, resp);
+        metrics_inc_errors(ctx->metrics);
+        return;
+    }
 
     char id[64];
     gen_id(id, sizeof(id), "cmpl");
@@ -552,6 +564,8 @@ api_completions(http_conn_t *conn, http_request_t *req,
     char *out = malloc(API_BUF_SIZE);
     if (!out) { free(cctx.buf); free(escaped); return; }
 
+    const char *reason = (finish == BACKEND_FINISH_LENGTH) ? "length" : "stop";
+
     int n = snprintf(out, API_BUF_SIZE,
         "{\"id\":\"%s\","
         "\"object\":\"text_completion\","
@@ -560,15 +574,17 @@ api_completions(http_conn_t *conn, http_request_t *req,
         "\"choices\":[{"
             "\"index\":0,"
             "\"text\":\"%s\","
-            "\"finish_reason\":\"stop\""
+            "\"finish_reason\":\"%s\""
         "}],"
         "\"usage\":{"
-            "\"prompt_tokens\":0,"
+            "\"prompt_tokens\":%d,"
             "\"completion_tokens\":%d,"
             "\"total_tokens\":%d"
         "}}",
         id, (long)time(NULL), backend_model_name(ctx->backend),
-        escaped, cctx.token_count, cctx.token_count);
+        escaped, reason,
+        prompt_tokens, cctx.token_count,
+        prompt_tokens + cctx.token_count);
 
     http_resp_init(resp, 200, "OK");
     http_resp_body_json(resp, out, (size_t)n);
